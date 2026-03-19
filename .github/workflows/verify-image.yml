@@ -1,0 +1,89 @@
+name: verify-image
+on:
+  workflow_run:
+    workflows: ["Build and Publish CNPG Custom Image"]
+    types:
+      - completed
+    branches:
+      - releases
+
+  workflow_dispatch:
+    inputs:
+      image_name:
+        description: 'Target image repository'
+        required: false
+        default: ''
+      image_tag:
+        description: 'Target image tag, defaults to latest'
+        required: false
+        default: 'latest'
+
+env:
+  IMAGE_NAME: ${{ inputs.image_name || format('ghcr.io/{0}', github.repository) }}
+  IMAGE_TAG: ${{ inputs.image_tag || 'latest' }}
+  PG_VERSION: 18
+
+jobs:
+  verify-extensions:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Pull Target Docker Image
+        run: |
+          set -euo pipefail
+          RAW_TARGET_IMAGE="${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          TARGET_IMAGE=$(echo "$RAW_TARGET_IMAGE" | tr '[:upper:]' '[:lower:]')
+          echo "Pulling image: ${TARGET_IMAGE}"
+          docker pull "${TARGET_IMAGE}"
+
+      - name: Verify PostgreSQL Extensions
+        run: |
+          set -euo pipefail
+          echo "Starting verification..."
+
+          REQUIRED_EXTENSIONS=(
+            "timescaledb"
+            "timescaledb_toolkit"
+            "pg_stat_statements"
+            "postgis"
+            "h3_postgis"
+            "postgis_raster"
+            "pg_trgm"
+            "postgis_sfcgal"
+            "postgis_tiger_geocoder"
+            "postgis_topology"
+          )
+
+          HAS_ERROR=0
+          RAW_TARGET_IMAGE="${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          TARGET_IMAGE=$(echo "$RAW_TARGET_IMAGE" | tr '[:upper:]' '[:lower:]')
+
+          check_in_image() {
+            local path_glob="$1"
+            docker run --rm --entrypoint /bin/bash "$TARGET_IMAGE" -c "ls ${path_glob} > /dev/null 2>&1"
+          }
+
+          for ext in "${REQUIRED_EXTENSIONS[@]}"; do
+            if check_in_image "/usr/share/postgresql/${{ env.PG_VERSION }}/extension/${ext}.control"; then
+              echo "[PASS] Extension found: $ext"
+            else
+              echo "[FAIL] Extension not found: $ext"
+              HAS_ERROR=1
+            fi
+          done
+
+          echo "Checking required shared libraries (.so)..."
+          if check_in_image "/usr/lib/postgresql/${{ env.PG_VERSION }}/lib/timescaledb_toolkit*.so"; then
+            echo "[PASS] Dependency found: timescaledb_toolkit.so"
+          else
+            echo "[FAIL] Missing dependency: timescaledb_toolkit.so"
+            HAS_ERROR=1
+          fi
+
+          if [ "$HAS_ERROR" -ne 0 ]; then
+            echo "Error: Required extensions or dependencies are missing. Please check the Dockerfile and republish the image."
+            exit 1
+          else
+            echo "All required extensions are installed. Image health check passed."
+          fi
