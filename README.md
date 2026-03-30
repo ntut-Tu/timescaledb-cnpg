@@ -2,7 +2,7 @@
 
 A custom CloudNativePG (CNPG) image based on PostgreSQL 18 (`bookworm`), pre-configured with TimescaleDB and other essential extensions for time-series, geospatial, and vector workloads.
 
-The release builds will be based on `releases` branch.
+The release packages will be based on `releases` branch.
 
 ## Included Extensions
 
