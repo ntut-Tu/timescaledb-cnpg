@@ -22,6 +22,7 @@ RUN set -eux; \
       > /etc/apt/sources.list.d/timescaledb.list; \
     apt-get update; \
     packages=( \
+      postgresql-contrib-18 \
       postgresql-18-postgis-3 \
       postgresql-18-postgis-3-scripts \
       postgresql-18-pgvector \
@@ -39,6 +40,25 @@ RUN set -eux; \
       fi; \
     done; \
     apt-get install -y --no-install-recommends "${packages[@]}"; \
+    required_extensions=( \
+      postgis \
+      postgis_topology \
+      postgis_tiger_geocoder \
+      fuzzystrmatch \
+      vector \
+      h3 \
+      timescaledb \
+      timescaledb_toolkit \
+    ); \
+    if [[ "${INSTALL_PGAI}" == "true" ]]; then \
+      required_extensions+=(ai); \
+    fi; \
+    for ext in "${required_extensions[@]}"; do \
+      if [[ ! -f "/usr/share/postgresql/18/extension/${ext}.control" ]]; then \
+        echo "Extension control file not found: ${ext}.control" >&2; \
+        exit 1; \
+      fi; \
+    done; \
     apt-get purge -y --auto-remove curl gnupg; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /var/cache/apt/archives/partial/*
